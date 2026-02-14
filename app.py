@@ -15,7 +15,6 @@ REDIRECT_URI = 'http://127.0.0.1:8888/callback'
 
 DATABASE = 'mars_player.db'
 
-# --- 数据库连接 ---
 def get_db():
     db = getattr(g, '_database', None)
     if db is None:
@@ -29,7 +28,6 @@ def close_connection(exception):
     if db is not None:
         db.close()
 
-# --- Spotify 连接 ---
 try:
     sp = spotipy.Spotify(auth_manager=SpotifyOAuth(
         client_id=CLIENT_ID, client_secret=CLIENT_SECRET,
@@ -41,7 +39,6 @@ except Exception as e:
     print(f"❌ Connection Error: {e}")
     sp = None
 
-# --- 路由 ---
 @app.route('/')
 def home():
     return render_template('index.html')
@@ -51,8 +48,7 @@ def get_schedule():
     try:
         cur = get_db().execute("SELECT slot, activity FROM schedule")
         return jsonify({row['slot']: row['activity'] for row in cur.fetchall()})
-    except:
-        return jsonify({})
+    except: return jsonify({})
 
 @app.route('/save_schedule', methods=['POST'])
 def save_schedule():
@@ -79,27 +75,20 @@ def get_music():
         activity = row['activity'] if row else 'relax'
         source = f"Schedule ({slot})"
 
-    # 调用 V7.2 引擎
-    tracks = fetch_tracks_v7_2(activity, target_count=10)
+    tracks = fetch_tracks_v7_3(activity, target_count=10)
     return jsonify({"tracks": tracks, "activity": activity, "source": source})
 
 @app.route('/dislike_song', methods=['POST'])
 def dislike_song():
     data = request.json
     artist, tid, activity = data.get('artist'), data.get('track_id'), data.get('activity')
-    
     db = get_db()
-    # 1. 拉黑歌曲
     db.execute("INSERT INTO blacklist (id, name, type, activity) VALUES (?, ?, ?, ?)", (tid, 'Track', 'track', 'global'))
-    
-    # 2. 如果连续遇到不喜欢的艺人，拉黑该艺人
     cur = db.execute("SELECT id FROM blacklist WHERE id=? AND type='artist' AND activity=?", (artist, activity))
     if not cur.fetchone():
         db.execute("INSERT INTO blacklist (id, name, type, activity) VALUES (?, ?, ?, ?)", (artist, artist, 'artist', activity))
     db.commit()
-    
-    # 补货
-    new_tracks = fetch_tracks_v7_2(activity, target_count=1)
+    new_tracks = fetch_tracks_v7_3(activity, target_count=1)
     return jsonify({"track": new_tracks[0] if new_tracks else None})
 
 @app.route('/toggle_like', methods=['POST'])
@@ -107,83 +96,86 @@ def toggle_like():
     data = request.json
     artist, activity = data.get('artist'), data.get('activity')
     db = get_db()
-    
-    # 检查是否已经喜欢了
     cur = db.execute("SELECT artist FROM likes WHERE artist=? AND activity=?", (artist, activity))
     if cur.fetchone():
-        # 如果已经喜欢，再次点击则是取消喜欢
         db.execute("DELETE FROM likes WHERE artist=? AND activity=?", (artist, activity))
         status = "removed"
     else:
-        # 添加喜欢
         db.execute("INSERT INTO likes (artist, activity) VALUES (?, ?)", (artist, activity))
-        # 既然喜欢了，就把他从黑名单里放出来（如果误拉黑的话）
         db.execute("DELETE FROM blacklist WHERE id=? AND type='artist' AND activity=?", (artist, activity))
         status = "added"
-    
     db.commit()
-    print(f"❤️ User liked/unliked: {artist} in {activity} mode -> {status}")
     return jsonify({"status": status})
 
-# --- ⭐ V7.2 核心：VIP 通道 + 混合推荐 ⭐ ---
-def fetch_tracks_v7_2(activity, target_count=10):
+# --- ⭐ V7.3 核心：关键词多元化 + 强制去重 ⭐ ---
+def fetch_tracks_v7_3(activity, target_count=10):
     if not sp: return []
     db = get_db()
     final_tracks = []
+    seen_titles = set() # 用来记录已经拿到过的歌名，防止重复
     
-    # 1. 准备黑名单
     banned_tracks = {r['id'] for r in db.execute("SELECT id FROM blacklist WHERE type='track'").fetchall()}
     banned_artists = {r['id'] for r in db.execute("SELECT id FROM blacklist WHERE type='artist' AND activity=?", (activity,)).fetchall()}
-    
-    # 2. 准备关键词
+
+    # ⭐ 1. 关键词升级：不再用笼统词，改用具体的流派和艺人 ⭐
+    # 这样搜出来的歌就不会全都叫 "Gym Motivation" 了
     query_map = {
-        'gym': ["Workout 2024", "Phonk", "Hardstyle", "Gym Motivation", "Hip Hop Workout"],
-        'study': ["Lofi Girl", "Deep Focus", "Piano Study", "Classical Essentials"], 
-        'relax': ["Chill Hits", "Acoustic Pop", "Ed Sheeran", "Coffee Shop"],
-        'commute': ["Top 50 USA", "Billboard Hot 100", "Viral Hits", "Road Trip"]
+        'gym': [
+            "genre:hip-hop", "Eminem", "Phonk", "Hardstyle", 
+            "Travis Scott", "Metallica", "Tech House", "Workout Hits", "Kanye West"
+        ],
+        'study': [
+            "Hans Zimmer", "Ludovico Einaudi", "Lo-Fi Beats", 
+            "Jazz Vibes", "Piano", "Ambient", "Deep Focus", "Mozart"
+        ], 
+        'relax': [
+            "Ed Sheeran", "John Mayer", "Coldplay", "Taylor Swift", 
+            "Acoustic", "R&B", "Neo Soul", "Chill Pop"
+        ],
+        'commute': [
+            "The Weeknd", "Dua Lipa", "Post Malone", "Harry Styles", 
+            "Billboard Hot 100", "Road Trip", "Classic Rock", "2000s Hits"
+        ]
     }
-    
-    # --- ⭐ STEP 0: VIP 通道 (优先抓取喜欢的艺人) ⭐ ---
-    # 查找当前场景下有没有喜欢的艺人
+
+    # --- VIP 通道 (保持不变) ---
     liked_artists_rows = db.execute("SELECT artist FROM likes WHERE activity=?", (activity,)).fetchall()
     liked_artists = [row['artist'] for row in liked_artists_rows]
-    
-    # 如果有喜欢的艺人，我们先拿 30% 的名额给他们 (比如 3 首歌)
     if liked_artists:
-        # 随机挑 1-2 个喜欢的艺人
         chosen_vips = random.sample(liked_artists, min(len(liked_artists), 2))
-        
         for vip in chosen_vips:
-            if len(final_tracks) >= 3: break # VIP 名额限制
+            if len(final_tracks) >= 3: break
             try:
-                # 专门搜这个艺人
-                print(f"🌟 Boosting VIP Artist: {vip}")
                 results = sp.search(q=f"artist:{vip}", limit=5, type='track', market='US')
                 items = results.get('tracks', {}).get('items', [])
                 random.shuffle(items)
-                
                 for item in items:
-                    tid = item['id']
-                    if tid not in banned_tracks:
+                    if item['id'] not in banned_tracks and item['name'] not in seen_titles:
                         final_tracks.append({
-                            'id': tid, 'name': item['name'], 'artist': item['artists'][0]['name'],
+                            'id': item['id'], 'name': item['name'], 'artist': item['artists'][0]['name'],
                             'image': item['album']['images'][0]['url'] if item['album']['images'] else '',
                             'link': item['external_urls']['spotify']
                         })
-                        break # 每个 VIP 艺人只取 1 首，避免刷屏
+                        seen_titles.add(item['name']) # 记录歌名
+                        break
             except: pass
 
-    # --- STEP 1: 探索通道 (原来的逻辑) ---
-    # 剩下的名额 (10 - 已有的VIP歌曲)，去公共池子里捞
-    queries = query_map.get(activity, ["Top 50 Global"])
+    # --- 探索通道 (升级版) ---
+    # 随机打乱关键词顺序，每次搜不一样的词
+    queries = query_map.get(activity, ["Pop"])
     random.shuffle(queries)
-    
-    max_loops = 3
+
+    max_loops = 5 # 多循环几次，因为过滤条件变严了
     for i in range(max_loops):
         if len(final_tracks) >= target_count: break
         
-        q = queries[i % len(queries)]
-        try_offset = random.choice([0, 10, 20]) # 随机翻页
+        q = queries[i % len(queries)] # 轮换关键词
+        
+        # 偶尔加个年份限制，让结果更新鲜
+        if random.random() > 0.7:
+            q = q + " year:2023-2025"
+
+        try_offset = random.choice([0, 10, 20])
         
         try:
             results = sp.search(q=q, limit=10, offset=try_offset, type='track', market='US')
@@ -196,35 +188,36 @@ def fetch_tracks_v7_2(activity, target_count=10):
                 name = item['name']
                 
                 if tid in banned_tracks or artist in banned_artists: continue
-                if "sounds" in artist.lower(): continue
-                
-                # 查重 (既不重复VIP的歌，也不重复自己的歌)
+                if "sounds" in artist.lower() or "loop" in name.lower(): continue
+
+                # ⭐ 强制去重逻辑 ⭐
+                # 如果这个歌名之前已经有了 (比如 "Lofi Study" 已经有过一首了)，这首就不要了
+                if name in seen_titles: continue
+                # 模糊去重：如果新歌名包含旧歌名，或者旧包含新 (比如 "Rain" 和 "Rain Sound")，也不要
+                # is_similar = any(name in t or t in name for t in seen_titles)
+                # if is_similar: continue 
+
                 if not any(t['id'] == tid for t in final_tracks):
                     final_tracks.append({
                         'id': tid, 'name': name, 'artist': artist,
                         'image': item['album']['images'][0]['url'] if item['album']['images'] else '',
                         'link': item['external_urls']['spotify']
                     })
+                    seen_titles.add(name) # 记录歌名
                 
                 if len(final_tracks) >= target_count: break
         except: continue
 
-    # --- STEP 2: 混合 ---
-    # 把 VIP 歌曲和探索歌曲混在一起，这样用户不会觉得突兀
-    random.shuffle(final_tracks)
-    
-    # --- STEP 3: 保底 ---
+    # 保底
     if len(final_tracks) < target_count:
         try:
             fallback = sp.search(q="Top 50 USA", limit=10, type='track', market='US')
             for item in fallback.get('tracks', {}).get('items', []):
-                tid = item['id']
-                if not any(t['id'] == tid for t in final_tracks):
+                if item['name'] not in seen_titles:
                     final_tracks.append({
-                        'id': tid, 'name': item['name'], 'artist': item['artists'][0]['name'],
+                        'id': item['id'], 'name': item['name'], 'artist': item['artists'][0]['name'],
                         'image': item['album']['images'][0]['url'], 'link': item['external_urls']['spotify']
                     })
-                if len(final_tracks) >= target_count: break
         except: pass
 
     return final_tracks[:target_count]
@@ -237,5 +230,4 @@ if __name__ == '__main__':
             db.execute('CREATE TABLE IF NOT EXISTS likes (artist TEXT, activity TEXT, UNIQUE(artist, activity))')
             db.execute('CREATE TABLE IF NOT EXISTS blacklist (id TEXT, name TEXT, type TEXT, activity TEXT)')
             db.commit()
-            
     app.run(debug=True, port=5000)
