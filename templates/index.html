@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Mars Player V6.0 (Anti-Spam)</title>
+    <style>
+        body { font-family: 'Helvetica Neue', sans-serif; background: #000; color: white; padding: 20px; text-align: center; }
+        .container { max-width: 900px; margin: auto; }
+        
+        /* 顶部面板 */
+        .panel { background: #181818; padding: 20px; border-radius: 12px; margin-bottom: 20px; display: flex; gap: 15px; justify-content: center; flex-wrap: wrap; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }
+        select { background: #333; color: white; padding: 8px 12px; border: 1px solid #444; border-radius: 20px; font-size: 14px; }
+        .save-btn { background: #1DB954; color: black; border: none; padding: 8px 20px; border-radius: 20px; font-weight: bold; cursor: pointer; transition: 0.2s; }
+        .save-btn:hover { background: #1ed760; transform: scale(1.05); }
+        
+        /* 模式切换 */
+        .status-bar { margin: 20px 0; display: flex; justify-content: space-between; align-items: center; background: #121212; padding: 10px; border-radius: 8px; }
+        .mode-btn { background: transparent; border: 1px solid #555; color: #aaa; padding: 6px 16px; border-radius: 20px; cursor: pointer; margin-left: 5px; transition: 0.3s; }
+        .mode-btn:hover { background: white; color: black; border-color: white; }
+        .mode-btn.active { background: #1DB954; color: black; border-color: #1DB954; font-weight: bold; }
+        
+        /* 歌曲卡片 */
+        .card { background: #181818; padding: 15px; margin-bottom: 12px; display: flex; align-items: center; gap: 20px; border-radius: 8px; transition: 0.3s; border-left: 5px solid transparent; }
+        .card:hover { background: #282828; border-left: 5px solid #1DB954; }
+        .card img { width: 60px; height: 60px; border-radius: 4px; object-fit: cover; }
+        .info { flex: 1; text-align: left; overflow: hidden; }
+        .info b { font-size: 16px; display: block; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .info small { color: #b3b3b3; font-size: 14px; }
+        
+        /* 按钮组 */
+        .btn-group { display: flex; gap: 15px; align-items: center; }
+        .icon-btn { cursor: pointer; background: transparent; border: none; font-size: 20px; transition: 0.2s; opacity: 0.7; }
+        .icon-btn:hover { transform: scale(1.2); opacity: 1; }
+        .liked { color: #1DB954; opacity: 1; text-shadow: 0 0 10px rgba(29, 185, 84, 0.5); }
+    </style>
+</head>
+<body onload="init()">
+    <h1 style="font-weight: 800; letter-spacing: -1px;">Mars <span style="color:#1DB954">Player</span></h1>
+    
+    <div class="container">
+        <div class="panel">
+            <div>🌅 <select id="morning"><option value="study">Study Focus</option><option value="gym">Gym Energy</option><option value="relax">Relax Chill</option></select></div>
+            <div>☀️ <select id="afternoon"><option value="gym">Gym Energy</option><option value="study">Study Focus</option><option value="relax">Relax Chill</option></select></div>
+            <div>🌙 <select id="evening"><option value="relax">Relax Chill</option><option value="study">Study Focus</option></select></div>
+            <button class="save-btn" onclick="saveSchedule()">Save Plan</button>
+        </div>
+
+        <div class="status-bar">
+            <span id="status-text" style="color:#1DB954; font-weight:bold;">Connecting...</span>
+            <div id="mode-buttons">
+                <button class="mode-btn" onclick="loadMusic('study')">Study</button>
+                <button class="mode-btn" onclick="loadMusic('gym')">Gym</button>
+                <button class="mode-btn" onclick="loadMusic('relax')">Relax</button>
+                <button class="mode-btn" onclick="loadMusic('commute')">Commute</button>
+            </div>
+        </div>
+
+        <div id="playlist"></div>
+    </div>
+
+    <script>
+        let currentActivity = 'relax';
+
+        async function init() {
+            await loadSchedule();
+            loadMusic();
+        }
+
+        async function loadSchedule() {
+            try {
+                const res = await fetch('/get_schedule');
+                const data = await res.json();
+                if(data.morning) document.getElementById('morning').value = data.morning;
+                if(data.afternoon) document.getElementById('afternoon').value = data.afternoon;
+                if(data.evening) document.getElementById('evening').value = data.evening;
+            } catch(e) { console.log("DB waiting..."); }
+        }
+
+        async function saveSchedule() {
+            const data = {
+                morning: document.getElementById('morning').value,
+                afternoon: document.getElementById('afternoon').value,
+                evening: document.getElementById('evening').value
+            };
+            await fetch('/save_schedule', {
+                method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data)
+            });
+            alert("✅ Plan Saved!");
+            loadMusic();
+        }
+
+        async function loadMusic(override = null) {
+            const list = document.getElementById('playlist');
+            list.innerHTML = '<p style="color:#666">Curating high quality tracks...</p>';
+            
+            // 更新按钮高亮
+            document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+            if(override) {
+                 const btn = Array.from(document.querySelectorAll('.mode-btn')).find(b => b.innerText.toLowerCase() === override);
+                 if(btn) btn.classList.add('active');
+            }
+
+            try {
+                const res = await fetch('/get_music', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ override })
+                });
+                const data = await res.json();
+                currentActivity = data.activity;
+                document.getElementById('status-text').innerText = `${data.source}: ${data.activity.toUpperCase()}`;
+                
+                list.innerHTML = '';
+                if(data.tracks.length === 0) list.innerHTML = '<p>No music found.</p>';
+                data.tracks.forEach(t => addTrack(t));
+            } catch(e) {
+                list.innerHTML = '<p style="color:red">Error loading music. Check console.</p>';
+            }
+        }
+
+        function addTrack(t) {
+            const div = document.createElement('div');
+            div.className = 'card';
+            div.id = `track-${t.id}`;
+            div.innerHTML = `
+                <img src="${t.image}">
+                <div class="info"><b>${t.name}</b><br><small>${t.artist}</small></div>
+                <div class="btn-group">
+                    <button class="icon-btn" onclick="dislike('${t.artist}','${t.id}')">👎</button>
+                    <button class="icon-btn" onclick="toggleLike('${t.artist}', this)">❤️</button>
+                    <button class="icon-btn" onclick="window.open('${t.link}')">▶</button>
+                </div>
+            `;
+            document.getElementById('playlist').appendChild(div);
+        }
+
+        async function dislike(artist, id) {
+            const card = document.getElementById(`track-${id}`);
+            card.style.opacity = '0.2'; // 立即反馈
+            
+            const res = await fetch('/dislike_song', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ artist, track_id: id, activity: currentActivity })
+            });
+            const data = await res.json();
+            
+            card.remove(); // 移除旧的
+            if(data.track) {
+                // 如果补了新歌，显示出来
+                addTrack(data.track);
+            }
+        }
+
+        async function toggleLike(artist, btn) {
+            btn.classList.toggle('liked');
+            await fetch('/toggle_like', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ artist, activity: currentActivity })
+            });
+        }
+    </script>
+</body>
+</html>
