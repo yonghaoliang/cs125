@@ -31,7 +31,19 @@
         .btn-group { display: flex; gap: 15px; align-items: center; }
         .icon-btn { cursor: pointer; background: transparent; border: none; font-size: 20px; transition: 0.2s; opacity: 0.7; }
         .icon-btn:hover { transform: scale(1.2); opacity: 1; }
-        .liked { color: #1DB954; opacity: 1; text-shadow: 0 0 10px rgba(29, 185, 84, 0.5); }
+        @keyframes pop {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.6); }
+    100% { transform: scale(1.4); }
+}
+
+.liked {
+    color: #1DB954;
+    animation: pop 0.2s ease;
+    transform: scale(1.4);
+    text-shadow: 0 0 12px #1DB954, 0 0 20px #1DB954;
+}
+
     </style>
 </head>
 <body onload="init()">
