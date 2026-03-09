@@ -5,15 +5,18 @@ from spotipy.oauth2 import SpotifyOAuth
 import random
 import os
 import time
+from dotenv import load_dotenv
+load_dotenv()
 
 app = Flask(__name__)
 
 # ================= 🚨 spotify token 🚨 =================
-CLIENT_ID = ''
-CLIENT_SECRET = ''
-REDIRECT_URI = 'http://127.0.0.1:8888/callback'
+CLIENT_ID = os.getenv('SPOTIPY_CLIENT_ID') 
+CLIENT_SECRET = os.getenv('SPOTIPY_CLIENT_SECRET')
+REDIRECT_URI = os.getenv('SPOTIPY_REDIRECT_URI')
 
 DATABASE = 'mars_player.db'
+
 
 # --- 数据库连接 ---
 def get_db():
