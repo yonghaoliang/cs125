@@ -10,6 +10,23 @@
         
         .container { max-width: 800px; margin: 0 auto; }
 
+        /* Auth Banner */
+        .auth-banner { 
+            display: flex; justify-content: space-between; align-items: center; 
+            background: var(--card); padding: 12px 20px; border-radius: 30px; 
+            margin-bottom: 25px; border: 1px solid #333; 
+        }
+        .auth-status-info { display: flex; align-items: center; gap: 10px; }
+        .status-dot { width: 10px; height: 10px; border-radius: 50%; background: #666; transition: 0.3s; }
+        .status-dot.online { background: var(--primary); box-shadow: 0 0 8px var(--primary); }
+        .status-dot.offline { background: #ff4444; }
+        #user-info { font-size: 0.9em; font-weight: 500; }
+        .auth-btn { 
+            background: var(--primary); color: black; border: none; padding: 8px 18px; 
+            border-radius: 20px; font-weight: bold; cursor: pointer; font-size: 0.85em; transition: 0.2s;
+        }
+        .auth-btn:hover { transform: scale(1.05); }
+
         /* Dashboard & Grid */
         .dashboard { background: var(--card); padding: 20px; border-radius: 12px; margin-bottom: 20px; border: 1px solid #333; }
         .schedule-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; margin-top: 10px; }
@@ -71,7 +88,7 @@
         .btn-m-cancel { background: transparent; color: white; border: 1px solid #555; }
         .btn-m-confirm { background: var(--primary); color: black; }
 
-        /* --- UNDO TOAST STYLES --- */
+        /* Toast Styles */
         #undo-toast {
             position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%) translateY(150px);
             background: #282828; color: white; min-width: 320px; padding: 12px 20px;
@@ -101,6 +118,14 @@
 <body>
 
 <div class="container">
+    <div class="auth-banner">
+        <div class="auth-status-info">
+            <div id="auth-dot" class="status-dot"></div>
+            <span id="user-info">Checking status...</span>
+        </div>
+        <button id="auth-btn" class="auth-btn" onclick="handleAuthClick()">Login Spotify</button>
+    </div>
+
     <div class="dashboard">
         <h3 style="margin-top:0">📅 Schedule Settings</h3>
         <div class="schedule-grid">
@@ -160,13 +185,48 @@
     let pendingDislike = null; 
     let backupTrack = null; 
     let undoTimeout = null;
+    let isLoggedInGlobal = false;
 
     window.onload = async () => {
         await loadSchedule();
         fetchMusic(null);
     };
 
-    // core functions
+    // --- Auth Logic ---
+    function updateAuthUI(isLoggedIn) {
+        isLoggedInGlobal = isLoggedIn;
+        const btn = document.getElementById('auth-btn');
+        const info = document.getElementById('user-info');
+        const dot = document.getElementById('auth-dot');
+        
+        if (isLoggedIn) {
+            info.innerText = "Spotify Connected";
+            info.style.color = "var(--text)";
+            dot.className = "status-dot online";
+            btn.innerText = "Logout";
+            btn.style.background = "#333";
+            btn.style.color = "white";
+        } else {
+            info.innerText = "Guest Mode";
+            info.style.color = "var(--sub)";
+            dot.className = "status-dot offline";
+            btn.innerText = "Login Spotify";
+            btn.style.background = "var(--primary)";
+            btn.style.color = "black";
+        }
+    }
+
+    function handleAuthClick() {
+        if (isLoggedInGlobal) {
+            if(confirm("Logout from Spotify? This will clear your session.")) {
+                window.location.href = '/logout';
+            }
+        } else {
+            window.location.href = '/login';
+        }
+    }
+
+    // --- Core Functions ---
     async function loadSchedule() {
         try {
             const res = await fetch('/get_schedule');
@@ -178,8 +238,16 @@
     }
 
     async function saveSchedule() {
-        const schedule = { morning: document.getElementById('morning').value, afternoon: document.getElementById('afternoon').value, evening: document.getElementById('evening').value };
-        await fetch('/save_schedule', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(schedule) });
+        const schedule = { 
+            morning: document.getElementById('morning').value, 
+            afternoon: document.getElementById('afternoon').value, 
+            evening: document.getElementById('evening').value 
+        };
+        await fetch('/save_schedule', { 
+            method: 'POST', 
+            headers: {'Content-Type': 'application/json'}, 
+            body: JSON.stringify(schedule) 
+        });
         alert('✅ Schedule Saved!');
         fetchMusic(null);
     }
@@ -194,8 +262,16 @@
         const container = document.getElementById('track-container');
         container.innerHTML = '<p style="text-align:center; color:#666">Connecting to Spotify...</p>';
         try {
-            const res = await fetch('/get_music', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ override: overrideMode }) });
+            const res = await fetch('/get_music', { 
+                method: 'POST', 
+                headers: {'Content-Type': 'application/json'}, 
+                body: JSON.stringify({ override: overrideMode }) 
+            });
             const data = await res.json();
+            
+            // Sync Auth State
+            updateAuthUI(data.is_logged_in);
+
             currentActivity = data.activity;
             document.getElementById('status-text').innerText = data.activity;
             document.getElementById('source-text').innerText = `Source: ${data.source}`;
@@ -224,12 +300,24 @@
     }
 
     async function handleLike(artist, btn) {
+        if (!isLoggedInGlobal) {
+            alert("🔒 Login required to save preferences.");
+            return;
+        }
         btn.classList.toggle('liked');
-        await fetch('/toggle_like', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ artist, activity: currentActivity }) });
+        await fetch('/toggle_like', { 
+            method: 'POST', 
+            headers: {'Content-Type': 'application/json'}, 
+            body: JSON.stringify({ artist, activity: currentActivity }) 
+        });
     }
 
-    // Modal 
+    // Modal & Deletion logic
     function openDislikeModal(tid, artist) {
+        if (!isLoggedInGlobal) {
+            alert("🔒 Login required to blacklist artists.");
+            return;
+        }
         pendingDislike = { tid, artist };
         document.getElementById('modal-artist-name').innerText = artist;
         document.getElementById('modal-activity-name').innerText = currentActivity.toUpperCase();
@@ -242,13 +330,11 @@
         pendingDislike = null;
     }
 
-    // --- pretend deletion logic with undo ---
     async function optimisticDelete() {
         if(!pendingDislike) return;
         const { tid, artist } = pendingDislike;
         const card = document.getElementById(`card-${tid}`);
         
-        // 1. backend process will take time, we backup the track info for potential restoration
         backupTrack = {
             tid: tid,
             html: card.outerHTML,
@@ -256,16 +342,13 @@
             nextSibling: card.nextSibling
         };
 
-        // 2. remove from UI immediately
         card.remove();
         closeModal();
 
-        // 3. display Toast with progress bar
         const toast = document.getElementById('undo-toast');
         const bar = document.getElementById('toast-bar');
         toast.classList.add('active');
 
-        // reset and start progress bar animation
         bar.style.transition = 'none';
         bar.style.width = '100%';
         setTimeout(() => {
@@ -273,42 +356,29 @@
             bar.style.width = '0%';
         }, 10);
 
-        // 4. backend processing
         fetch('/dislike_song', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({ track_id: tid, artist, activity: currentActivity })
-        }).then(res => res.json()).then(data => {
-            // if deletion failed, restore the track immediately
-            if(data.track && !backupTrack) { 
-                const newCard = createTrackCard(data.track);
-                document.getElementById('track-container').appendChild(newCard);
-            }
         });
 
-        // 5. 5秒后自动隐藏 Toast
         if(undoTimeout) clearTimeout(undoTimeout);
-        undoTimeout = setTimeout(() => {
-            hideToast();
-        }, 5000);
+        undoTimeout = setTimeout(() => hideToast(), 5000);
     }
 
     function restoreTrack() {
         if(!backupTrack) return;
         const { html, parent, nextSibling } = backupTrack;
-        
         const temp = document.createElement('div');
         temp.innerHTML = html;
         const restoredCard = temp.firstChild;
 
-        // insert back to original position
         if (nextSibling && nextSibling.parentNode) {
             parent.insertBefore(restoredCard, nextSibling);
         } else {
             parent.appendChild(restoredCard);
         }
 
-        // clear backup and hide toast
         if(undoTimeout) clearTimeout(undoTimeout);
         hideToast();
     }
