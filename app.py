@@ -74,27 +74,26 @@ def get_spotify_auth():
 
 def get_sp():
     auth_manager = get_spotify_auth()
+    token_info = auth_manager.cache_handler.get_cached_token()
 
-    #situation A(user logged in)
-    if auth_manager.validate_token(auth_manager.cache_handler.get_cached_token()):
+    if token_info and auth_manager.validate_token(token_info):
         print("Accessing as Logged-in User")
         return spotipy.Spotify(auth_manager=auth_manager)
     
-    #situation B(guest mode)
     print("Accessing as Guest")
     from spotipy.oauth2 import SpotifyClientCredentials
-    client_credentials_manager = SpotifyClientCredentials(
-        client_id=CLIENT_ID,
-        client_secret=CLIENT_SECRET
-    )
-    return spotipy.Spotify(client_credentials_manager=client_credentials_manager)
+    return spotipy.Spotify(auth_manager=SpotifyClientCredentials(
+        client_id=CLIENT_ID, client_secret=CLIENT_SECRET
+    ))
 
 def get_uid(sp):
     """Safely get the current Spotify User ID."""
-    try:
-        return sp.current_user()['id']
-    except Exception:
-        return None
+    if isinstance(sp.auth_manager, SpotifyOAuth):
+        try:
+            return sp.current_user()['id']
+        except Exception as err:
+            print(f"DEBUG: Login failed - {err}") 
+    return None
 # ================= 路由 =================
 
 @app.route('/')

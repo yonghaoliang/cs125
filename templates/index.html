@@ -32,7 +32,7 @@
         .schedule-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; margin-top: 10px; }
         .slot-control label { display: block; color: var(--sub); font-size: 0.85em; margin-bottom: 8px; font-weight: bold; }
         select { width: 100%; padding: 8px; background: #333; border: 1px solid #555; color: white; border-radius: 6px; cursor: pointer; }
-        .btn-save { background: #333; color: white; border: 1px solid #555; padding: 8px 15px; border-radius: 20px; cursor: pointer; margin-top: 15px; width: 100%; transition: 0.2s; }
+        .btn-save { background: #333; color: white; border: 1px solid #555; padding: 10px 15px; border-radius: 20px; cursor: pointer; margin-top: 15px; width: 100%; transition: 0.2s; font-weight: bold; }
         .btn-save:hover { background: #444; }
 
         /* Quick Switch */
@@ -66,10 +66,10 @@
             border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: 0.2s;
         }
         .action-btn:hover { background: rgba(255,255,255,0.2); transform: scale(1.1); }
-        .btn-like.liked { color: #e91e63; background: rgba(233, 30, 99, 0.15); }
+        .btn-like.liked { color: #ff4081; }
         .btn-play { background: var(--primary); color: black; }
         
-        /* Modal */
+        /* Modals */
         .modal-overlay {
             display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
             background: rgba(0,0,0,0.85); z-index: 2000; align-items: center; justify-content: center;
@@ -81,14 +81,14 @@
             animation: modalPop 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
         }
         @keyframes modalPop { from { transform: scale(0.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
-        .modal-content h2 { margin: 0 0 10px 0; font-size: 1.4em; }
+        .modal-content h2 { margin: 0 0 10px 0; font-size: 1.4em; color: var(--primary); }
         .modal-content p { color: var(--sub); line-height: 1.4; margin-bottom: 25px; font-size: 0.95em; }
-        .modal-actions { display: flex; gap: 12px; justify-content: center; }
+        .modal-actions { display: flex; flex-direction: column; gap: 10px; }
         .btn-m { padding: 12px 24px; border-radius: 25px; border: none; font-weight: bold; cursor: pointer; transition: 0.2s; font-size: 0.9em; }
-        .btn-m-cancel { background: transparent; color: white; border: 1px solid #555; }
         .btn-m-confirm { background: var(--primary); color: black; }
+        .btn-m-cancel { background: transparent; color: white; border: 1px solid #555; }
 
-        /* Toast Styles */
+        /* Undo Toast */
         #undo-toast {
             position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%) translateY(150px);
             background: #282828; color: white; min-width: 320px; padding: 12px 20px;
@@ -98,18 +98,8 @@
         }
         #undo-toast.active { transform: translateX(-50%) translateY(0); }
         .toast-left { display: flex; align-items: center; gap: 10px; }
-        #undo-btn { 
-            color: var(--primary); background: none; border: none; 
-            font-weight: bold; cursor: pointer; text-transform: uppercase; font-size: 0.85em;
-        }
-        #undo-btn:hover { color: #1ed760; }
-        .close-toast { background: none; border: none; color: #888; cursor: pointer; font-size: 1.2em; padding: 0 5px; }
-        .close-toast:hover { color: white; }
-
-        .toast-progress {
-            position: absolute; bottom: 0; left: 0; height: 3px;
-            background: var(--primary); width: 100%;
-        }
+        #undo-btn { color: var(--primary); background: none; border: none; font-weight: bold; cursor: pointer; text-transform: uppercase; font-size: 0.85em; }
+        .toast-progress { position: absolute; bottom: 0; left: 0; height: 3px; background: var(--primary); width: 100%; }
 
         @keyframes slideIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
         .new-track { animation: slideIn 0.4s ease-out; }
@@ -121,13 +111,13 @@
     <div class="auth-banner">
         <div class="auth-status-info">
             <div id="auth-dot" class="status-dot"></div>
-            <span id="user-info">Checking status...</span>
+            <span id="user-info">Authenticating...</span>
         </div>
-        <button id="auth-btn" class="auth-btn" onclick="handleAuthClick()">Login Spotify</button>
+        <button id="auth-btn" class="auth-btn" onclick="handleAuthClick()">Login with Spotify</button>
     </div>
 
     <div class="dashboard">
-        <h3 style="margin-top:0">📅 Schedule Settings</h3>
+        <h3 style="margin-top:0">📅 My Routine</h3>
         <div class="schedule-grid">
             <div class="slot-control">
                 <label>Morning</label>
@@ -142,10 +132,10 @@
                 <select id="evening"><option value="relax">Relax</option><option value="study">Study</option><option value="gym">Gym</option><option value="commute">Commute</option></select>
             </div>
         </div>
-        <button class="btn-save" onclick="saveSchedule()">💾 Save Plan</button>
+        <button class="btn-save" onclick="saveSchedule()">💾 Update Routine</button>
     </div>
 
-    <h3 style="margin-bottom:10px">Quick Switch</h3>
+    <h3 style="margin-bottom:10px">Manual Switch</h3>
     <div class="quick-switch">
         <button class="mode-btn" onclick="manualSwitch('study', this)">📚 Study</button>
         <button class="mode-btn" onclick="manualSwitch('gym', this)">💪 Gym</button>
@@ -160,13 +150,24 @@
     <div id="track-container" class="track-list"></div>
 </div>
 
+<div id="login-reminder-modal" class="modal-overlay">
+    <div class="modal-content">
+        <h2>Save Your Vibe!</h2>
+        <p>Login with Spotify to save your liked artists and permanently blacklist tracks from your routine.</p>
+        <div class="modal-actions">
+            <button class="btn-m btn-m-confirm" onclick="window.location.href='/login'">Login with Spotify</button>
+            <button class="btn-m btn-m-cancel" onclick="closeLoginModal()">Maybe Later</button>
+        </div>
+    </div>
+</div>
+
 <div id="dislike-modal" class="modal-overlay">
     <div class="modal-content">
-        <h2>Remove from list?</h2>
-        <p>This will blacklist <b><span id="modal-artist-name"></span></b> from your <span id="modal-activity-name"></span> suggestions.</p>
+        <h2>Mute Artist?</h2>
+        <p>We'll stop suggesting songs by <b><span id="modal-artist-name"></span></b> during your <span id="modal-activity-name"></span> session.</p>
         <div class="modal-actions">
-            <button class="btn-m btn-m-cancel" onclick="closeModal()">Cancel</button>
-            <button id="modal-confirm-btn" class="btn-m btn-m-confirm">Remove</button>
+            <button id="modal-confirm-btn" class="btn-m btn-m-confirm" style="background: #ff4444; color: white;">Confirm Mute</button>
+            <button class="btn-m btn-m-cancel" onclick="closeDislikeModal()">Keep it</button>
         </div>
     </div>
 </div>
@@ -176,7 +177,6 @@
         <span>Track removed.</span>
         <button id="undo-btn" onclick="restoreTrack()">Undo</button>
     </div>
-    <button class="close-toast" onclick="hideToast()">✕</button>
     <div class="toast-progress" id="toast-bar"></div>
 </div>
 
@@ -192,7 +192,7 @@
         fetchMusic(null);
     };
 
-    // --- Auth Logic ---
+    // --- Auth UI Logic ---
     function updateAuthUI(isLoggedIn) {
         isLoggedInGlobal = isLoggedIn;
         const btn = document.getElementById('auth-btn');
@@ -201,30 +201,25 @@
         
         if (isLoggedIn) {
             info.innerText = "Spotify Connected";
-            info.style.color = "var(--text)";
             dot.className = "status-dot online";
             btn.innerText = "Logout";
-            btn.style.background = "#333";
-            btn.style.color = "white";
+            btn.classList.add('btn-m-cancel');
         } else {
             info.innerText = "Guest Mode";
-            info.style.color = "var(--sub)";
             dot.className = "status-dot offline";
             btn.innerText = "Login Spotify";
-            btn.style.background = "var(--primary)";
-            btn.style.color = "black";
         }
     }
 
     function handleAuthClick() {
         if (isLoggedInGlobal) {
-            if(confirm("Logout from Spotify? This will clear your session.")) {
-                window.location.href = '/logout';
-            }
+            if(confirm("Are you sure you want to log out?")) window.location.href = '/logout';
         } else {
             window.location.href = '/login';
         }
     }
+
+    function closeLoginModal() { document.getElementById('login-reminder-modal').style.display = 'none'; }
 
     // --- Core Functions ---
     async function loadSchedule() {
@@ -248,7 +243,7 @@
             headers: {'Content-Type': 'application/json'}, 
             body: JSON.stringify(schedule) 
         });
-        alert('✅ Schedule Saved!');
+        alert('✅ Schedule Sync Complete!');
         fetchMusic(null);
     }
 
@@ -260,7 +255,7 @@
 
     async function fetchMusic(overrideMode) {
         const container = document.getElementById('track-container');
-        container.innerHTML = '<p style="text-align:center; color:#666">Connecting to Spotify...</p>';
+        container.innerHTML = '<p style="text-align:center; color:#666">Connecting to Mars Radio...</p>';
         try {
             const res = await fetch('/get_music', { 
                 method: 'POST', 
@@ -269,15 +264,13 @@
             });
             const data = await res.json();
             
-            // Sync Auth State
             updateAuthUI(data.is_logged_in);
-
             currentActivity = data.activity;
             document.getElementById('status-text').innerText = data.activity;
-            document.getElementById('source-text').innerText = `Source: ${data.source}`;
+            document.getElementById('source-text').innerText = `Via ${data.source}`;
             container.innerHTML = '';
             data.tracks.forEach(t => container.appendChild(createTrackCard(t)));
-        } catch(e) { container.innerHTML = '<p style="color:red; text-align:center">Error loading tracks.</p>'; }
+        } catch(e) { container.innerHTML = '<p style="color:red; text-align:center">Failed to fetch music.</p>'; }
     }
 
     function createTrackCard(t) {
@@ -291,7 +284,7 @@
                 <div class="track-artist">${t.artist}</div>
             </div>
             <div class="actions">
-                <button class="action-btn btn-dislike" onclick="openDislikeModal('${t.id}', '${t.artist}')">👎</button>
+                <button class="action-btn" onclick="handleDislikeClick('${t.id}', '${t.artist}')">👎</button>
                 <button class="action-btn btn-like" onclick="handleLike('${t.artist}', this)">❤️</button>
                 <button class="action-btn btn-play" onclick="window.open('${t.link}', '_blank')">▶</button>
             </div>
@@ -301,7 +294,7 @@
 
     async function handleLike(artist, btn) {
         if (!isLoggedInGlobal) {
-            alert("🔒 Login required to save preferences.");
+            document.getElementById('login-reminder-modal').style.display = 'flex';
             return;
         }
         btn.classList.toggle('liked');
@@ -312,10 +305,9 @@
         });
     }
 
-    // Modal & Deletion logic
-    function openDislikeModal(tid, artist) {
+    function handleDislikeClick(tid, artist) {
         if (!isLoggedInGlobal) {
-            alert("🔒 Login required to blacklist artists.");
+            document.getElementById('login-reminder-modal').style.display = 'flex';
             return;
         }
         pendingDislike = { tid, artist };
@@ -325,36 +317,22 @@
         document.getElementById('modal-confirm-btn').onclick = optimisticDelete;
     }
 
-    function closeModal() {
-        document.getElementById('dislike-modal').style.display = 'none';
-        pendingDislike = null;
-    }
+    function closeDislikeModal() { document.getElementById('dislike-modal').style.display = 'none'; }
 
     async function optimisticDelete() {
         if(!pendingDislike) return;
         const { tid, artist } = pendingDislike;
         const card = document.getElementById(`card-${tid}`);
         
-        backupTrack = {
-            tid: tid,
-            html: card.outerHTML,
-            parent: card.parentNode,
-            nextSibling: card.nextSibling
-        };
-
+        backupTrack = { tid: tid, html: card.outerHTML, parent: card.parentNode, nextSibling: card.nextSibling };
         card.remove();
-        closeModal();
+        closeDislikeModal();
 
         const toast = document.getElementById('undo-toast');
         const bar = document.getElementById('toast-bar');
         toast.classList.add('active');
-
-        bar.style.transition = 'none';
-        bar.style.width = '100%';
-        setTimeout(() => {
-            bar.style.transition = 'width 5s linear';
-            bar.style.width = '0%';
-        }, 10);
+        bar.style.transition = 'none'; bar.style.width = '100%';
+        setTimeout(() => { bar.style.transition = 'width 5s linear'; bar.style.width = '0%'; }, 10);
 
         fetch('/dislike_song', {
             method: 'POST',
@@ -369,23 +347,17 @@
     function restoreTrack() {
         if(!backupTrack) return;
         const { html, parent, nextSibling } = backupTrack;
-        const temp = document.createElement('div');
-        temp.innerHTML = html;
+        const temp = document.createElement('div'); temp.innerHTML = html;
         const restoredCard = temp.firstChild;
-
-        if (nextSibling && nextSibling.parentNode) {
-            parent.insertBefore(restoredCard, nextSibling);
-        } else {
-            parent.appendChild(restoredCard);
-        }
-
-        if(undoTimeout) clearTimeout(undoTimeout);
+        if (nextSibling && nextSibling.parentNode) parent.insertBefore(restoredCard, nextSibling);
+        else parent.appendChild(restoredCard);
         hideToast();
     }
 
     function hideToast() {
         document.getElementById('undo-toast').classList.remove('active');
         backupTrack = null;
+        if(undoTimeout) clearTimeout(undoTimeout);
     }
 </script>
 
