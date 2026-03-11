@@ -66,7 +66,10 @@
             border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: 0.2s;
         }
         .action-btn:hover { background: rgba(255,255,255,0.2); transform: scale(1.1); }
-        .btn-like.liked { color: #ff4081; }
+        .btn-like.liked { color: #ff4081 !important; 
+                          background: rgba(255, 64, 129, 0.2);
+                          box-shadow: 0 0 12px rgba(255, 64, 129, 0.5);
+                          transform: scale(1.1); }
         .btn-play { background: var(--primary); color: black; }
         
         /* Modals */
@@ -132,7 +135,7 @@
                 <select id="evening"><option value="relax">Relax</option><option value="study">Study</option><option value="gym">Gym</option><option value="commute">Commute</option></select>
             </div>
         </div>
-        <button class="btn-save" onclick="saveSchedule()">💾 Update Routine</button>
+        <button class="btn-save" onclick="saveSchedule()">Update Routine</button>
     </div>
 
     <h3 style="margin-bottom:10px">Manual Switch</h3>
@@ -273,46 +276,53 @@
         } catch(e) { container.innerHTML = '<p style="color:red; text-align:center">Failed to fetch music.</p>'; }
     }
 
-    function createTrackCard(t) {
-        const div = document.createElement('div');
-        div.className = 'track-card new-track';
-        div.id = `card-${t.id}`;
-        div.innerHTML = `
-            <img src="${t.image}" class="album-art">
-            <div class="track-info">
-                <div class="track-title">${t.name}</div>
-                <div class="track-artist">${t.artist}</div>
-            </div>
-            <div class="actions">
-                <button class="action-btn" onclick="handleDislikeClick('${t.id}', '${t.artist}')">👎</button>
-                <button class="action-btn btn-like" onclick="handleLike('${t.artist}', this)">❤️</button>
-                <button class="action-btn btn-play" onclick="window.open('${t.link}', '_blank')">▶</button>
-            </div>
-        `;
-        return div;
-    }
+        function createTrackCard(t) {
+            const div = document.createElement('div');
+            div.className = 'track-card new-track';
+            div.id = `card-${t.id}`;
+            
+            const likedClass = t.is_liked ? 'liked' : '';
 
-    async function handleLike(artist, btn) {
+            div.innerHTML = `
+                <img src="${t.image}" class="album-art">
+                <div class="track-info">
+                    <div class="track-title">${t.name}</div>
+                    <div class="track-artist">${t.artist}</div>
+                </div>
+                <div class="actions">
+                    <button class="action-btn" onclick="handleDislikeClick('${t.id}', '${t.artist}', '${t.name.replace(/'/g, "\\'")}')">👎</button>
+                    <button class="action-btn btn-like ${likedClass}" onclick="handleLike('${t.id}', '${t.artist}', this)">❤️</button>
+                    <button class="action-btn btn-play" onclick="window.open('${t.link}', '_blank')">▶</button>
+                </div>
+            `;
+            return div;
+        }
+        async function handleLike(tid, artist, btn) {
+            if (!isLoggedInGlobal) {
+                document.getElementById('login-reminder-modal').style.display = 'flex';
+                return;
+            }
+            btn.classList.toggle('liked'); 
+
+            await fetch('/toggle_like', { 
+                method: 'POST', 
+                headers: {'Content-Type': 'application/json'}, 
+                body: JSON.stringify({ 
+                    track_id: tid, 
+                    artist: artist, 
+                    activity: currentActivity 
+                }) 
+            });
+        }
+
+    function handleDislikeClick(tid, artist, trackName) {
         if (!isLoggedInGlobal) {
             document.getElementById('login-reminder-modal').style.display = 'flex';
             return;
         }
-        btn.classList.toggle('liked');
-        await fetch('/toggle_like', { 
-            method: 'POST', 
-            headers: {'Content-Type': 'application/json'}, 
-            body: JSON.stringify({ artist, activity: currentActivity }) 
-        });
-    }
-
-    function handleDislikeClick(tid, artist) {
-        if (!isLoggedInGlobal) {
-            document.getElementById('login-reminder-modal').style.display = 'flex';
-            return;
-        }
-        pendingDislike = { tid, artist };
-        document.getElementById('modal-artist-name').innerText = artist;
-        document.getElementById('modal-activity-name').innerText = currentActivity.toUpperCase();
+        pendingDislike = { tid, artist, trackName };
+        document.getElementById('modal-artist-name').innerText = trackName;
+        document.getElementById('modal-activity-name').innerText = "playlist";
         document.getElementById('dislike-modal').style.display = 'flex';
         document.getElementById('modal-confirm-btn').onclick = optimisticDelete;
     }
@@ -337,7 +347,12 @@
         fetch('/dislike_song', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ track_id: tid, artist, activity: currentActivity })
+            body: JSON.stringify({ 
+                track_id: tid, 
+                name: trackName, 
+                artist: artist, 
+                activity: currentActivity 
+            })
         });
 
         if(undoTimeout) clearTimeout(undoTimeout);

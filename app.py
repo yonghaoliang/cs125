@@ -175,23 +175,19 @@ def dislike_song():
         return jsonify({"status": "error", "message": "Login required"}), 401
 
     data = request.json
-    artist, tid, activity = data.get('artist'), data.get('track_id'), data.get('activity')
+
+    tid = data.get('track_id')
+    track_name = data.get('name', 'Unknown Track')
+    activity = data.get('activity')
     
     db = get_db()
+    
+
     db.execute(
-        "INSERT INTO blacklist (id, name, type, activity, user_id) VALUES (?, ?, ?, ?, ?)", 
-        (tid, 'Track', 'track', 'global', uid)
+        "INSERT INTO blacklist (id, name, type, activity, user_id) VALUES (?, ?, 'track', 'global', ?)", 
+        (tid, track_name, uid)
     )
     
-    cur = db.execute(
-        "SELECT id FROM blacklist WHERE id=? AND type='artist' AND activity=? AND user_id=?", 
-        (artist, activity, uid)
-    )
-    if not cur.fetchone():
-        db.execute(
-            "INSERT INTO blacklist (id, name, type, activity, user_id) VALUES (?, ?, ?, ?, ?)", 
-            (artist, artist, 'artist', activity, uid)
-        )
     db.commit()
     
     new_tracks = fetch_tracks_v7_9(activity, target_count=1, sp=sp)
@@ -205,27 +201,30 @@ def toggle_like():
         return jsonify({"status": "error", "message": "Login required"}), 401
 
     data = request.json
-    artist, activity = data.get('artist'), data.get('activity')
+    tid = data.get('track_id')
+    artist = data.get('artist')
+    activity = data.get('activity')
+    
     db = get_db()
     cur = db.execute(
-        "SELECT artist FROM likes WHERE artist=? AND activity=? AND user_id=?", 
-        (artist, activity, uid)
+        "SELECT track_id FROM likes WHERE track_id=? AND user_id=?", 
+        (tid, uid)
     )
     
     if cur.fetchone():
         db.execute(
-            "DELETE FROM likes WHERE artist=? AND activity=? AND user_id=?", 
-            (artist, activity, uid)
+            "DELETE FROM likes WHERE track_id=? AND user_id=?", 
+            (tid, uid)
         )
         status = "removed"
     else:
         db.execute(
-            "INSERT INTO likes (artist, activity, user_id) VALUES (?, ?, ?)", 
-            (artist, activity, uid)
+            "INSERT INTO likes (track_id, artist, activity, user_id) VALUES (?, ?, ?, ?)", 
+            (tid, artist, activity, uid)
         )
         db.execute(
-            "DELETE FROM blacklist WHERE id=? AND type='artist' AND activity=? AND user_id=?", 
-            (artist, activity, uid)
+            "DELETE FROM blacklist WHERE id=? AND type='track' AND user_id=?", 
+            (tid, uid)
         )
         status = "added"
     
@@ -243,63 +242,56 @@ def fetch_tracks_v7_9(activity, target_count=10, sp=None):
     final_tracks = []
     seen_titles = set()
 
-    # --- 1. 获取个性化数据 (统一使用 execute 和正确表名) ---
+    # --- 1. 获取个性化数据 (基于歌曲 ID) ---
     try:
-        # 获取点赞歌手 (用于增加搜索权重)
+        # 获取点赞歌曲的 ID (用于判断红心是否亮起)
         liked_rows = db.execute(
-            "SELECT artist FROM likes WHERE activity = ? AND user_id = ?", 
-            (activity, uid)
+            "SELECT track_id FROM likes WHERE user_id = ?", 
+            (uid,)
         ).fetchall()
-        liked_artists = [row['artist'] for row in liked_rows]
+        liked_track_ids = {row['track_id'] for row in liked_rows}
 
-        # 获取拉黑歌手 (来自统一的 blacklist 表)
-        banned_artist_rows = db.execute(
-            "SELECT id FROM blacklist WHERE type = 'artist' AND (activity = ? OR activity = 'global') AND user_id = ?", 
-            (activity, uid)
-        ).fetchall()
-        banned_artists = {row['id'] for row in banned_artist_rows}
-
-        # 获取拉黑歌曲
-        banned_track_rows = db.execute(
+        # 获取拉黑歌曲的 ID (全局拉黑)
+        banned_rows = db.execute(
             "SELECT id FROM blacklist WHERE type = 'track' AND user_id = ?", 
             (uid,)
         ).fetchall()
-        banned_tracks = {row['id'] for row in banned_track_rows}
+        banned_tracks = {row['id'] for row in banned_rows}
+        
+   
+        liked_artist_rows = db.execute(
+            "SELECT DISTINCT artist FROM likes WHERE user_id = ?", 
+            (uid,)
+        ).fetchall()
+        liked_artists = [row['artist'] for row in liked_artist_rows]
+
     except Exception as e:
         print(f"❌ Database error in recommendation: {e}")
-        liked_artists, banned_artists, banned_tracks = [], set(), set()
+        liked_track_ids, banned_tracks, liked_artists = set(), set(), []
 
-    # --- 2. 关键词池 (保持你的丰富词库) ---
     query_map = {
-        'gym': ["Phonk", "Hardstyle", "Workout Hits", "Gym Motivation", "Travis Scott", "Kanye West"],
-        'study': ["Lofi Girl", "Chillhop", "Jazz Vibes", "Piano Focus", "Ambient", "Brain Food"], 
-        'relax': ["Ed Sheeran", "Taylor Swift", "John Mayer", "Coldplay", "SZA", "Frank Ocean"],
-        'commute': ["The Weeknd", "Post Malone", "Dua Lipa", "Harry Styles", "Bad Bunny", "Bruno Mars"]
+        'gym': ["Phonk", "Hardstyle", "Workout Hits", "Gym Motivation", "Travis Scott"],
+        'study': ["Lofi Girl", "Chillhop", "Jazz Vibes", "Piano Focus", "Ambient"], 
+        'relax': ["Ed Sheeran", "Taylor Swift", "John Mayer", "Coldplay", "SZA"],
+        'commute': ["The Weeknd", "Post Malone", "Dua Lipa", "Harry Styles", "Bad Bunny"]
     }
     
     search_pool = query_map.get(activity, ["Pop"])
-
+    # 将喜欢的歌手加入搜索池，增加搜到他们其他歌曲的概率
     if liked_artists:
-        for _ in range(3): 
-            search_pool.extend(liked_artists)
+        search_pool.extend(liked_artists)
     
     random.shuffle(search_pool)
 
-    # --- search loop ---
+    # --- 3. 搜索循环 ---
     max_loops = 10
     for i in range(max_loops):
         if len(final_tracks) >= target_count: break
         
         q_term = search_pool[i % len(search_pool)]
-        
-        if random.random() > 0.5:
-             year = random.choice(['2018-2020', '2021-2023', '2024-2025'])
-             q = f"{q_term} year:{year}"
-        else:
-             q = q_term
+        q = f"{q_term} year:2020-2026" if random.random() > 0.5 else q_term
 
         try:
-            print(f"🔎 Safe Searching: '{q}'")
             results = sp.search(q=str(q), limit=10, type='track')
             items = results.get('tracks', {}).get('items', [])
             random.shuffle(items)
@@ -309,35 +301,45 @@ def fetch_tracks_v7_9(activity, target_count=10, sp=None):
                 name = item['name']
                 artist = item['artists'][0]['name']
                 
-                # 核心过滤：检查 ID 是否在拉黑集合中
-                if tid in banned_tracks or artist in banned_artists:
+                # 核心过滤：只检查这首歌的 ID 是否在黑名单
+                if tid in banned_tracks:
                     continue
-                if "sound" in name.lower() or "mix" in name.lower():
-                    continue 
+                
                 if name in seen_titles:
                     continue 
                 
+                # 核心判断：只有当前这首歌的 ID 在喜欢列表里，红心才亮
+                is_liked = tid in liked_track_ids 
+
                 final_tracks.append({
-                    'id': tid, 'name': name, 'artist': artist,
+                    'id': tid, 
+                    'name': name, 
+                    'artist': artist,
                     'image': item['album']['images'][0]['url'] if item['album']['images'] else '',
-                    'link': item['external_urls']['spotify']
+                    'link': item['external_urls']['spotify'],
+                    'is_liked': is_liked  
                 })
                 seen_titles.add(name)
                 
                 if len(final_tracks) >= target_count: break
         except Exception as e:
-            print(f"⚠️ Search error for '{q}': {e}")
+            print(f"⚠️ Search error: {e}")
             continue
 
     # --- 4. 绝对保底 ---
     if len(final_tracks) < target_count:
         try:
-            fallback = sp.search(q="trending", limit=10, type='track')
+            fallback = sp.search(q="trending", limit=target_count, type='track')
             for item in fallback.get('tracks', {}).get('items', []):
-                 if item['name'] not in seen_titles and len(final_tracks) < target_count:
+                 tid = item['id']
+                 if tid not in banned_tracks and item['name'] not in seen_titles:
                     final_tracks.append({
-                        'id': item['id'], 'name': item['name'], 'artist': item['artists'][0]['name'],
-                        'image': item['album']['images'][0]['url'], 'link': item['external_urls']['spotify']
+                        'id': tid, 
+                        'name': item['name'], 
+                        'artist': item['artists'][0]['name'],
+                        'image': item['album']['images'][0]['url'], 
+                        'link': item['external_urls']['spotify'],
+                        'is_liked': tid in liked_track_ids
                     })
         except: pass
 
