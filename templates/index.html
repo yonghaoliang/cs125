@@ -166,8 +166,11 @@
 
 <div id="dislike-modal" class="modal-overlay">
     <div class="modal-content">
-        <h2>Mute Artist?</h2>
-        <p>We'll stop suggesting songs by <b><span id="modal-artist-name"></span></b> during your <span id="modal-activity-name"></span> session.</p>
+        <h2>Remove this Track?</h2> 
+        <p>
+            We'll hide <b id="modal-track-name"></b> from your <span id="modal-activity-name"></span> sessions.
+            <span id="modal-artist-name" style="display: none;"></span>
+        </p>
         <div class="modal-actions">
             <button id="modal-confirm-btn" class="btn-m btn-m-confirm" style="background: #ff4444; color: white;">Confirm Mute</button>
             <button class="btn-m btn-m-cancel" onclick="closeDislikeModal()">Keep it</button>
@@ -315,49 +318,59 @@
             });
         }
 
-    function handleDislikeClick(tid, artist, trackName) {
-        if (!isLoggedInGlobal) {
-            document.getElementById('login-reminder-modal').style.display = 'flex';
-            return;
-        }
-        pendingDislike = { tid, artist, trackName };
-        document.getElementById('modal-artist-name').innerText = trackName;
-        document.getElementById('modal-activity-name').innerText = "playlist";
-        document.getElementById('dislike-modal').style.display = 'flex';
-        document.getElementById('modal-confirm-btn').onclick = optimisticDelete;
+
+function handleDislikeClick(tid, artist, trackName) {
+    if (!isLoggedInGlobal) {
+        document.getElementById('login-reminder-modal').style.display = 'flex';
+        return;
     }
+    
+    pendingDislike = { tid, artist, trackName };
+    
+    if(document.getElementById('modal-track-name')) {
+        document.getElementById('modal-track-name').innerText = trackName;
+    }
+    if(document.getElementById('modal-activity-name')) {
+        document.getElementById('modal-activity-name').innerText = "playlist";
+    }
+
+    document.getElementById('dislike-modal').style.display = 'flex';
+
+    document.getElementById('modal-confirm-btn').onclick = optimisticDelete;
+}
 
     function closeDislikeModal() { document.getElementById('dislike-modal').style.display = 'none'; }
 
-    async function optimisticDelete() {
-        if(!pendingDislike) return;
-        const { tid, artist } = pendingDislike;
-        const card = document.getElementById(`card-${tid}`);
-        
-        backupTrack = { tid: tid, html: card.outerHTML, parent: card.parentNode, nextSibling: card.nextSibling };
-        card.remove();
-        closeDislikeModal();
+async function optimisticDelete() {
+    if(!pendingDislike) return;
+    const { tid, artist, trackName } = pendingDislike; 
+    
+    const card = document.getElementById(`card-${tid}`);
+    
+    backupTrack = { tid: tid, html: card.outerHTML, parent: card.parentNode, nextSibling: card.nextSibling };
+    card.remove();
+    closeDislikeModal();
 
-        const toast = document.getElementById('undo-toast');
-        const bar = document.getElementById('toast-bar');
-        toast.classList.add('active');
-        bar.style.transition = 'none'; bar.style.width = '100%';
-        setTimeout(() => { bar.style.transition = 'width 5s linear'; bar.style.width = '0%'; }, 10);
+    const toast = document.getElementById('undo-toast');
+    const bar = document.getElementById('toast-bar');
+    toast.classList.add('active');
+    bar.style.transition = 'none'; bar.style.width = '100%';
+    setTimeout(() => { bar.style.transition = 'width 5s linear'; bar.style.width = '0%'; }, 10);
 
-        fetch('/dislike_song', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ 
-                track_id: tid, 
-                name: trackName, 
-                artist: artist, 
-                activity: currentActivity 
-            })
-        });
+    fetch('/dislike_song', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ 
+            track_id: tid, 
+            name: trackName, 
+            artist: artist, 
+            activity: currentActivity 
+        })
+    });
 
-        if(undoTimeout) clearTimeout(undoTimeout);
-        undoTimeout = setTimeout(() => hideToast(), 5000);
-    }
+    if(undoTimeout) clearTimeout(undoTimeout);
+    undoTimeout = setTimeout(() => hideToast(), 5000);
+}
 
     function restoreTrack() {
         if(!backupTrack) return;

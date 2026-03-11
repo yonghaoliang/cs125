@@ -22,19 +22,37 @@ DATABASE = 'mars_player.db'
 def init_db_v2():
     with sqlite3.connect(DATABASE) as conn:
         cursor = conn.cursor()
+        
         cursor.execute('CREATE TABLE IF NOT EXISTS schedule (slot TEXT PRIMARY KEY, activity TEXT)')
-        cursor.execute('CREATE TABLE IF NOT EXISTS likes (id INTEGER PRIMARY KEY AUTOINCREMENT, artist TEXT, activity TEXT, user_id TEXT)')
-        cursor.execute('CREATE TABLE IF NOT EXISTS blacklist (id TEXT, name TEXT, type TEXT, activity TEXT, user_id TEXT)')
+        
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS likes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, 
+                track_id TEXT, 
+                artist TEXT, 
+                activity TEXT, 
+                user_id TEXT
+            )
+        ''')
+        
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS blacklist (
+                id TEXT PRIMARY KEY, 
+                name TEXT, 
+                type TEXT, 
+                activity TEXT, 
+                user_id TEXT
+            )
+        ''')
         
         try:
-            cursor.execute("ALTER TABLE likes ADD COLUMN user_id TEXT")
-            print("Added user_id to likes")
-        except sqlite3.OperationalError: pass
-        
-        try:
-            cursor.execute("ALTER TABLE blacklist ADD COLUMN user_id TEXT")
-            print("Added user_id to blacklist")
-        except sqlite3.OperationalError: pass
+
+            cursor.execute("ALTER TABLE likes ADD COLUMN track_id TEXT")
+            print("Successfully added track_id to likes table")
+        except sqlite3.OperationalError:
+
+            pass
+
         conn.commit()
 
 # --- 数据库连接 ---
