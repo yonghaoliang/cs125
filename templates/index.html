@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Mars Player - V7.9 Pro</title>
     <style>
+        
         :root { --bg: #121212; --card: #181818; --primary: #1db954; --text: #ffffff; --sub: #b3b3b3; --hover: #282828; }
         body { background-color: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 0; padding: 20px; }
         
@@ -104,6 +105,22 @@
         #undo-btn { color: var(--primary); background: none; border: none; font-weight: bold; cursor: pointer; text-transform: uppercase; font-size: 0.85em; }
         .toast-progress { position: absolute; bottom: 0; left: 0; height: 3px; background: var(--primary); width: 100%; }
 
+        .archive-collapsed {
+            max-height: 150px; 
+            overflow: hidden;
+            transition: max-height 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .archive-expanded {
+            max-height: 2000px; 
+            transition: max-height 0.6s ease-in-out;
+        }
+
+        #liked-songs-container .actions .btn-like,
+        #liked-songs-container .actions button:first-child {
+            display: none;
+        }
+
         @keyframes slideIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
         .new-track { animation: slideIn 0.4s ease-out; }
     </style>
@@ -144,6 +161,20 @@
         <button class="mode-btn" onclick="manualSwitch('gym', this)">💪 Gym</button>
         <button class="mode-btn" onclick="manualSwitch('relax', this)">☕ Relax</button>
         <button class="mode-btn" onclick="manualSwitch('commute', this)">🚗 Commute</button>
+    </div>
+
+    <div class="dashboard" id="liked-songs-section" style="display: none; background: #121212; border: 1px solid rgba(255, 255, 255, 0.05); margin-top: 30px; border-radius: 12px; padding: 24px;">
+        <div style="margin-top: 0; margin-bottom: 20px; color: #ffffff; font-size: 0.9rem; letter-spacing: 0.15em; text-transform: uppercase; font-weight: 700; display: flex; justify-content: space-between; align-items: center;">
+            <span>Sonic Archives</span>
+            <span id="archive-count" style="color: #666; font-size: 0.7rem; letter-spacing: 1px;">0 ITEMS</span>
+        </div>
+        
+        <div id="liked-songs-container" class="track-list archive-collapsed">
+            </div>
+
+        <button id="toggle-archive-btn" onclick="toggleArchiveView()" style="display: none; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); color: #b3b3b3; width: 100%; padding: 10px; margin-top: 15px; border-radius: 6px; cursor: pointer; font-size: 0.8rem; font-weight: 600; transition: 0.2s;">
+            Expand Library
+        </button>
     </div>
 
     <div class="status-header">
@@ -192,10 +223,12 @@
     let backupTrack = null; 
     let undoTimeout = null;
     let isLoggedInGlobal = false;
+    let isArchiveExpanded = false;
 
     window.onload = async () => {
         await loadSchedule();
         fetchMusic(null);
+        refreshLikedSongs();
     };
 
     // --- Auth UI Logic ---
@@ -259,7 +292,7 @@
         fetchMusic(mode);
     }
 
-    async function fetchMusic(overrideMode) {
+async function fetchMusic(overrideMode) {
         const container = document.getElementById('track-container');
         container.innerHTML = '<p style="text-align:center; color:#666">Connecting to Mars Radio...</p>';
         try {
@@ -270,13 +303,32 @@
             });
             const data = await res.json();
             
+            // 1. 立即同步全局登录变量
+            isLoggedInGlobal = data.is_logged_in; 
+            
+            // 2. 更新 UI 状态
             updateAuthUI(data.is_logged_in);
+            
+            // 3. ✨ 关键点：只有确认登录状态同步后，才去刷新收藏夹
+            if (isLoggedInGlobal) {
+                console.log("Login confirmed, syncing collection...");
+                refreshLikedSongs(); 
+            }
+
             currentActivity = data.activity;
             document.getElementById('status-text').innerText = data.activity;
             document.getElementById('source-text').innerText = `Via ${data.source}`;
             container.innerHTML = '';
-            data.tracks.forEach(t => container.appendChild(createTrackCard(t)));
-        } catch(e) { container.innerHTML = '<p style="color:red; text-align:center">Failed to fetch music.</p>'; }
+            
+            if (data.tracks && data.tracks.length > 0) {
+                data.tracks.forEach(t => container.appendChild(createTrackCard(t)));
+            } else {
+                container.innerHTML = '<p style="text-align:center; color:#666">No tracks found for this activity.</p>';
+            }
+        } catch(e) { 
+            console.error("Fetch music error:", e);
+            container.innerHTML = '<p style="color:red; text-align:center">Failed to fetch music.</p>'; 
+        }
     }
 
         function createTrackCard(t) {
@@ -300,23 +352,94 @@
             `;
             return div;
         }
-        async function handleLike(tid, artist, btn) {
+        async function refreshLikedSongs() {
+            const section = document.getElementById('liked-songs-section');
+            const container = document.getElementById('liked-songs-container');
+            const toggleBtn = document.getElementById('toggle-archive-btn');
+            const countSpan = document.getElementById('archive-count');
+            
+            if (!section || !container) return;
+
             if (!isLoggedInGlobal) {
-                document.getElementById('login-reminder-modal').style.display = 'flex';
+                section.style.display = 'none';
                 return;
             }
-            btn.classList.toggle('liked'); 
 
-            await fetch('/toggle_like', { 
-                method: 'POST', 
-                headers: {'Content-Type': 'application/json'}, 
-                body: JSON.stringify({ 
-                    track_id: tid, 
-                    artist: artist, 
-                    activity: currentActivity 
-                }) 
-            });
+            try {
+                const res = await fetch('/get_liked_songs');
+                const songs = await res.json();
+
+                if (Array.isArray(songs) && songs.length > 0) {
+                    section.style.display = 'block';
+                    countSpan.innerText = `${songs.length} ITEMS`;
+                    container.innerHTML = '';
+                    
+                    songs.forEach(s => {
+                        // 使用原有的 createTrackCard 但通过 CSS 隐藏了内部的❤️按钮
+                        const card = createTrackCard({...s, is_liked: true});
+                        card.style.background = 'rgba(255,255,255,0.02)'; // 极轻量底色
+                        card.style.border = 'none';
+                        container.appendChild(card);
+                    });
+
+                    // 如果超过2首歌，显示“展开”按钮
+                    if (songs.length > 2) {
+                        toggleBtn.style.display = 'block';
+                        toggleBtn.innerText = isArchiveExpanded ? "Collapse Archives" : `View All (${songs.length})`;
+                    } else {
+                        toggleBtn.style.display = 'none';
+                        container.classList.remove('archive-collapsed');
+                    }
+                } else {
+                    section.style.display = 'none';
+                }
+            } catch (e) {
+                console.error("Refresh failed:", e);
+            }
         }
+
+        // 控制展开与收起的函数
+        function toggleArchiveView() {
+            const container = document.getElementById('liked-songs-container');
+            const toggleBtn = document.getElementById('toggle-archive-btn');
+            
+            isArchiveExpanded = !isArchiveExpanded;
+            
+            if (isArchiveExpanded) {
+                container.classList.remove('archive-collapsed');
+                container.classList.add('archive-expanded');
+                toggleBtn.innerText = "Collapse Archives";
+            } else {
+                container.classList.remove('archive-expanded');
+                container.classList.add('archive-collapsed');
+                toggleBtn.innerText = "View All Library";
+            }
+        }
+
+    async function handleLike(tid, artist, btn) {
+        if (!isLoggedInGlobal) {
+            document.getElementById('login-reminder-modal').style.display = 'flex';
+            return;
+        }
+        btn.classList.toggle('liked'); 
+
+        // 发送 POST 请求
+        const res = await fetch('/toggle_like', { 
+            method: 'POST', 
+            headers: {'Content-Type': 'application/json'}, 
+            body: JSON.stringify({ 
+                track_id: tid,  // 👈 确认这里是 track_id 而不是 id
+                artist: artist, 
+                activity: currentActivity 
+            }) 
+        });
+        
+        // 等待后端存完后刷新
+        await res.json(); 
+        setTimeout(() => {
+            refreshLikedSongs();
+        }, 300); // 给数据库 0.3 秒的写入宽限期
+    }
 
 
 function handleDislikeClick(tid, artist, trackName) {

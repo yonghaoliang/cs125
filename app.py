@@ -16,7 +16,8 @@ CLIENT_ID = os.getenv('SPOTIPY_CLIENT_ID')
 CLIENT_SECRET = os.getenv('SPOTIPY_CLIENT_SECRET')
 REDIRECT_URI = os.getenv('SPOTIPY_REDIRECT_URI')
 
-DATABASE = 'mars_player.db'
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATABASE = os.path.join(BASE_DIR, 'mars_player.db')
 
 #only need to run one time
 def init_db_v2():
@@ -219,35 +220,63 @@ def toggle_like():
         return jsonify({"status": "error", "message": "Login required"}), 401
 
     data = request.json
-    tid = data.get('track_id')
-    artist = data.get('artist')
-    activity = data.get('activity')
+    # 🕵️‍♂️ 确保这里能拿到 track_id
+    tid = data.get('track_id') 
+    artist = data.get('artist', 'Unknown')
+    activity = data.get('activity', 'relax')
     
+    print(f"DEBUG SAVE: Saving Track [{tid}] for User [{uid}]")
+
     db = get_db()
-    cur = db.execute(
-        "SELECT track_id FROM likes WHERE track_id=? AND user_id=?", 
-        (tid, uid)
-    )
+    try:
+        # 检查是否已存在
+        cur = db.execute("SELECT id FROM likes WHERE track_id=? AND user_id=?", (tid, uid))
+        if cur.fetchone():
+            db.execute("DELETE FROM likes WHERE track_id=? AND user_id=?", (tid, uid))
+            status = "removed"
+        else:
+            db.execute("INSERT INTO likes (track_id, artist, activity, user_id) VALUES (?, ?, ?, ?)", 
+                       (tid, artist, activity, uid))
+            status = "added"
+        db.commit()
+        print(f"✅ DB Success: {status}")
+        return jsonify({"status": status})
+    except Exception as e:
+        print(f"❌ SQL Error: {e}")
+        return jsonify({"status": "error"}), 500
+
+@app.route('/get_liked_songs', methods=['GET'])
+def get_liked_songs():
+    sp = get_sp()
+    uid = get_uid(sp)
+    if not uid:
+        return jsonify([])
+
+    db = get_db()
+    cur = db.execute("SELECT track_id FROM likes WHERE user_id = ?", (uid,))
+    rows = cur.fetchall()
     
-    if cur.fetchone():
-        db.execute(
-            "DELETE FROM likes WHERE track_id=? AND user_id=?", 
-            (tid, uid)
-        )
-        status = "removed"
-    else:
-        db.execute(
-            "INSERT INTO likes (track_id, artist, activity, user_id) VALUES (?, ?, ?, ?)", 
-            (tid, artist, activity, uid)
-        )
-        db.execute(
-            "DELETE FROM blacklist WHERE id=? AND type='track' AND user_id=?", 
-            (tid, uid)
-        )
-        status = "added"
-    
-    db.commit()
-    return jsonify({"status": status})
+    if not rows:
+        return jsonify([])
+
+    liked_songs = []
+    for row in rows:
+        tid = row['track_id']
+        try:
+            # 使用 track 单曲查询，比 tracks 批量查询更不容易触发 403
+            track_data = sp.track(tid) 
+            liked_songs.append({
+                'id': tid,
+                'name': track_data['name'],
+                'artist': track_data['artists'][0]['name'],
+                'image': track_data['album']['images'][0]['url'] if track_data['album']['images'] else '',
+                'link': track_data['external_urls']['spotify']
+            })
+        except Exception as e:
+            print(f"⚠️ Skip track {tid} due to error: {e}")
+            continue
+            
+    return jsonify(liked_songs)
 
 
 # =================  Offset，No Market ⭐ =================
