@@ -287,7 +287,7 @@
             headers: {'Content-Type': 'application/json'}, 
             body: JSON.stringify(schedule) 
         });
-        alert('✅ Schedule Sync Complete!');
+        alert('Schedule Sync Complete!');
         fetchMusic(null);
     }
 
@@ -308,13 +308,13 @@ async function fetchMusic(overrideMode) {
             });
             const data = await res.json();
             
-            // 1. 立即同步全局登录变量
+            // Immediately synchronize global login variables
             isLoggedInGlobal = data.is_logged_in; 
             
-            // 2. 更新 UI 状态
+            // Update UI status
             updateAuthUI(data.is_logged_in);
             
-            // 3. ✨ 关键点：只有确认登录状态同步后，才去刷新收藏夹
+            // Only refresh the favorites after confirming that the login status is synchronized.
             if (isLoggedInGlobal) {
                 console.log("Login confirmed, syncing collection...");
                 refreshLikedSongs(); 
@@ -436,7 +436,17 @@ async function fetchMusic(overrideMode) {
             return;
         }
 
-        // 立即给按钮一个反馈，防止连点
+        const card = btn.closest('.track-card');
+        if (!card) {
+            console.error("Critical: Could not find .track-card element");
+            return;
+        }
+
+        const trackName = card.querySelector('.track-title') ? card.querySelector('.track-title').innerText : 'Unknown Track';
+        const trackImage = card.querySelector('.album-art') ? card.querySelector('.album-art').src : '';
+
+        console.log(`Attempting to like: ${trackName} by ${artist}`);
+
         btn.style.pointerEvents = 'none';
 
         try {
@@ -446,36 +456,35 @@ async function fetchMusic(overrideMode) {
                 body: JSON.stringify({ 
                     track_id: tid, 
                     artist: artist, 
+                    name: trackName,    
+                    image: trackImage, 
                     activity: currentActivity 
                 }) 
             });
             
             const result = await res.json();
-            
-            // 判断是否在档案库容器内
             const isInArchive = btn.closest('#liked-songs-container') !== null;
 
             if (result.status === 'removed') {
                 if (isInArchive) {
-                    // 如果是在档案库点灭红心：触发消失动画
                     const card = btn.closest('.track-card');
                     card.classList.add('removing-card');
-                    
-                    setTimeout(() => {
-                        refreshLikedSongs(); // 动画结束后重新渲染列表（更新计数和高度）
-                    }, 400);
+                    const mainListBtn = document.querySelector(`#card-${tid} .btn-like`);
+                    if (mainListBtn) {
+                        mainListBtn.classList.remove('liked');
+                    }
+
+                    setTimeout(() => { refreshLikedSongs(); }, 400);    
                 } else {
-                    // 如果在主推荐列表点灭：仅切换状态并同步档案库
                     btn.classList.remove('liked');
                     refreshLikedSongs();
                 }
             } else {
-                // 添加成功
                 btn.classList.add('liked');
                 refreshLikedSongs();
             }
         } catch (e) {
-            console.error("Like toggle failed", e);
+            console.error("Network or Server Error:", e);
         } finally {
             btn.style.pointerEvents = 'auto';
         }
