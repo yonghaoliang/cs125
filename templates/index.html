@@ -116,9 +116,14 @@
             transition: max-height 0.6s ease-in-out;
         }
 
-        #liked-songs-container .actions .btn-like,
-        #liked-songs-container .actions button:first-child {
-            display: none;
+        #liked-songs-container .action-btn:first-child {
+            display: none !important;
+        }
+
+        .removing-card {
+            opacity: 0;
+            transform: translateX(50px);
+            transition: all 0.4s ease;
         }
 
         @keyframes slideIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
@@ -352,6 +357,8 @@ async function fetchMusic(overrideMode) {
             `;
             return div;
         }
+
+        
         async function refreshLikedSongs() {
             const section = document.getElementById('liked-songs-section');
             const container = document.getElementById('liked-songs-container');
@@ -375,17 +382,24 @@ async function fetchMusic(overrideMode) {
                     container.innerHTML = '';
                     
                     songs.forEach(s => {
-                        // 使用原有的 createTrackCard 但通过 CSS 隐藏了内部的❤️按钮
+                        // 1. 生成卡片
                         const card = createTrackCard({...s, is_liked: true});
-                        card.style.background = 'rgba(255,255,255,0.02)'; // 极轻量底色
+                        
+                        // 2. 这里的修改很关键：为了和主列表区分，我们给 Archives 里的卡片加个特殊的 ID 
+                        // 这样 handleLike 就能识别出是从这里触发的，并执行移除动画
+                        card.id = `archive-card-${s.id}`; 
+                        
+                        card.style.background = 'rgba(255,255,255,0.02)';
                         card.style.border = 'none';
                         container.appendChild(card);
                     });
 
-                    // 如果超过2首歌，显示“展开”按钮
+                    // 控制展开逻辑
                     if (songs.length > 2) {
                         toggleBtn.style.display = 'block';
                         toggleBtn.innerText = isArchiveExpanded ? "Collapse Archives" : `View All (${songs.length})`;
+                        // 只有在没展开时才加折叠类
+                        if (!isArchiveExpanded) container.classList.add('archive-collapsed');
                     } else {
                         toggleBtn.style.display = 'none';
                         container.classList.remove('archive-collapsed');
@@ -421,24 +435,50 @@ async function fetchMusic(overrideMode) {
             document.getElementById('login-reminder-modal').style.display = 'flex';
             return;
         }
-        btn.classList.toggle('liked'); 
 
-        // 发送 POST 请求
-        const res = await fetch('/toggle_like', { 
-            method: 'POST', 
-            headers: {'Content-Type': 'application/json'}, 
-            body: JSON.stringify({ 
-                track_id: tid,  // 👈 确认这里是 track_id 而不是 id
-                artist: artist, 
-                activity: currentActivity 
-            }) 
-        });
-        
-        // 等待后端存完后刷新
-        await res.json(); 
-        setTimeout(() => {
-            refreshLikedSongs();
-        }, 300); // 给数据库 0.3 秒的写入宽限期
+        // 立即给按钮一个反馈，防止连点
+        btn.style.pointerEvents = 'none';
+
+        try {
+            const res = await fetch('/toggle_like', { 
+                method: 'POST', 
+                headers: {'Content-Type': 'application/json'}, 
+                body: JSON.stringify({ 
+                    track_id: tid, 
+                    artist: artist, 
+                    activity: currentActivity 
+                }) 
+            });
+            
+            const result = await res.json();
+            
+            // 判断是否在档案库容器内
+            const isInArchive = btn.closest('#liked-songs-container') !== null;
+
+            if (result.status === 'removed') {
+                if (isInArchive) {
+                    // 如果是在档案库点灭红心：触发消失动画
+                    const card = btn.closest('.track-card');
+                    card.classList.add('removing-card');
+                    
+                    setTimeout(() => {
+                        refreshLikedSongs(); // 动画结束后重新渲染列表（更新计数和高度）
+                    }, 400);
+                } else {
+                    // 如果在主推荐列表点灭：仅切换状态并同步档案库
+                    btn.classList.remove('liked');
+                    refreshLikedSongs();
+                }
+            } else {
+                // 添加成功
+                btn.classList.add('liked');
+                refreshLikedSongs();
+            }
+        } catch (e) {
+            console.error("Like toggle failed", e);
+        } finally {
+            btn.style.pointerEvents = 'auto';
+        }
     }
 
 
