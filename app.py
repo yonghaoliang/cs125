@@ -340,7 +340,7 @@ def fetch_tracks_v7_9(activity, target_count=10, sp=None):
   
     try:
         with db.cursor() as cursor:
-            #  ID
+            #  track ID
             cursor.execute("SELECT track_id FROM liked_songs WHERE user_id = %s", (uid,))
             liked_track_ids = {row['track_id'] for row in cursor.fetchall()}
 

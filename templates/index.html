@@ -394,11 +394,11 @@ async function fetchMusic(overrideMode) {
                         container.appendChild(card);
                     });
 
-                    // 控制展开逻辑
+                    // expand logic for liked list
                     if (songs.length > 2) {
                         toggleBtn.style.display = 'block';
                         toggleBtn.innerText = isArchiveExpanded ? "Collapse Archives" : `View All (${songs.length})`;
-                        // 只有在没展开时才加折叠类
+                        // add the folding category when the object is not unfolded
                         if (!isArchiveExpanded) container.classList.add('archive-collapsed');
                     } else {
                         toggleBtn.style.display = 'none';
@@ -412,7 +412,7 @@ async function fetchMusic(overrideMode) {
             }
         }
 
-        // 控制展开与收起的函数
+        // control expansion and collapse
         function toggleArchiveView() {
             const container = document.getElementById('liked-songs-container');
             const toggleBtn = document.getElementById('toggle-archive-btn');
