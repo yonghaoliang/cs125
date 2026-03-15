@@ -382,11 +382,10 @@ async function fetchMusic(overrideMode) {
                     container.innerHTML = '';
                     
                     songs.forEach(s => {
-                        // 1. 生成卡片
+                        //生成卡片
                         const card = createTrackCard({...s, is_liked: true});
                         
-                        // 2. 这里的修改很关键：为了和主列表区分，我们给 Archives 里的卡片加个特殊的 ID 
-                        // 这样 handleLike 就能识别出是从这里触发的，并执行移除动画
+
                         card.id = `archive-card-${s.id}`; 
                         
                         card.style.background = 'rgba(255,255,255,0.02)';
